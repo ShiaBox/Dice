@@ -88,19 +88,23 @@ jobs:
       fail-fast: false
       matrix:
         include:
-        - apt: g++-8 g++-8-multilib
+        - name: "AMD64 Build"
+          apt: g++-8 g++-8-multilib
           cc: gcc-8
           cxx: g++-8
           triplet: x64-linux
           mono: 'mono'
           dll_sfx: linux.amd64
-        - path: /usr/aarch64-linux-gnu
+          is_cross: false
+        - name: "ARM64 Build"
+          path: /usr/aarch64-linux-gnu
           apt: g++-aarch64-linux-gnu
           cc: aarch64-linux-gnu-gcc
           cxx: aarch64-linux-gnu-g++
           triplet: arm64-linux
           mono: 'mono'
           dll_sfx: linux.aarch64
+          is_cross: true
   
     runs-on: ubuntu-22.04
   
@@ -116,15 +120,28 @@ jobs:
       
     - name: Install Cross Compiler
       run: |
-        sudo sed -i 's/http:\/\/security.ubuntu.com/https:\/\/ports.ubuntu.com/g' /etc/apt/sources.list
-        sudo sed -i 's/http:\/\/archive.ubuntu.com/https:\/\/ports.ubuntu.com/g' /etc/apt/sources.list
-        sudo dpkg --add-architecture arm64
-        sudo dpkg --add-architecture armhf
+        # 仅交叉编译时修改源和添加架构
+        if ${{ matrix.is_cross }}; then
+          # 替换ARM架构的软件源
+          sudo sed -i 's|http://$security\|archive$.ubuntu.com|https://ports.ubuntu.com|g' /etc/apt/sources.list
+          # 添加ARM架构支持
+          sudo dpkg --add-architecture arm64
+          sudo dpkg --add-architecture armhf
+        fi
+  
+        # 公共安装步骤
         sudo apt-get update -y
-        sudo apt-get install -y \
-          crossbuild-essential-arm64 \
-          libc6-dev-arm64-cross \
-          ${{ matrix.apt }}
+        sudo apt-get install -y software-properties-common
+        sudo add-apt-repository -y ppa:ubuntu-toolchain-r/ppa
+        sudo apt-get update -y
+        sudo apt-get install -y ${{ matrix.apt }}
+  
+        # 交叉编译特定安装
+        if ${{ matrix.is_cross }}; then
+          sudo apt-get install -y \
+            crossbuild-essential-arm64 \
+            libc6-dev-arm64-cross
+        fi
 
     - name: Cache
       uses: actions/cache@v3
