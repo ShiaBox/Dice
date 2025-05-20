@@ -180,13 +180,6 @@ jobs:
           triplet: x64-linux
           mono: 'mono'
           dll_sfx: linux.amd64
-        - path: /usr/i686-linux-gnu
-          apt: g++-8-multilib
-          cc: i686-linux-gnu-gcc-8
-          cxx: i686-linux-gnu-g++-8
-          triplet: x86-linux
-          mono: 'mono'
-          dll_sfx: linux.i386
         - path: /usr/aarch64-linux-gnu
           apt: g++-aarch64-linux-gnu
           cc: aarch64-linux-gnu-gcc
@@ -194,13 +187,6 @@ jobs:
           triplet: arm64-linux
           mono: 'mono'
           dll_sfx: linux.aarch64
-        - path: /usr/arm-linux-gnueabihf
-          apt: g++-arm-linux-gnueabihf
-          cc: arm-linux-gnueabihf-gcc
-          cxx: arm-linux-gnueabihf-g++
-          triplet: arm-linux
-          mono: 'mono'
-          dll_sfx: linux.arm
   
     runs-on: ubuntu-22.04
   
