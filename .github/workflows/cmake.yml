@@ -1,11 +1,6 @@
 name: CMake
 
-on:
-  workflow_dispatch:
-  push:
-    branches: [ newdev ]
-  pull_request:
-    branches: [ newdev ]
+on: [push, pull_request]
 
 jobs:
   build-windows:
@@ -26,59 +21,76 @@ jobs:
           triplet_prefix: x64-windows
           mono: ''
           dll_sfx: windows.amd64
-  
+          
     runs-on: windows-2022
-  
+    
     steps:
     - uses: actions/checkout@v3
       with:
-        submodules: recursive
-        fetch-depth: 0
-  
+        submodules: 'recursive'
+
     - name: Create Build Environment
+      # Some projects don't allow in-source building, so create a separate build directory
+      # We'll use this as our working directory for all subsequent commands
       run: cmake -E make_directory ${{github.workspace}}/build
-  
+      
     - name: Cache
       uses: actions/cache@v3
       id: cache
       with:
+        # A list of files, directories, and wildcard patterns to cache and restore
         path: ${{github.workspace}}\vcpkg\vcpkg.exe
+        # An explicit key for restoring and saving the cache
         key: ${{ runner.os }}-${{ matrix.triplet }}-20231006
-  
+        restore-keys:  ${{ runner.os }}-${{ matrix.triplet }}-20231006
+
     - name: Setup Vcpkg
       shell: cmd
       if: steps.cache.outputs.cache-hit != 'true'
       working-directory: ${{github.workspace}}/vcpkg
-      run: |
-        bootstrap-vcpkg.bat
-        dir  # 验证文件生成
-  
+      run: bootstrap-vcpkg.bat
+
     - name: 'Setup NuGet Credentials'
-      shell: cmd
-      run: |
-        "%GITHUB_WORKSPACE%\vcpkg\vcpkg.exe" fetch nuget | tail -n 1
-        nuget sources add -Source "https://nuget.pkg.github.com/Dice-Developer-Team/index.json" -Name "GitHub" -Username "Dice-Developer-Team" -Password "${{ secrets.GITHUB_TOKEN }}" -StorePasswordInClearText
-  
+      shell: 'bash'
+      # Replace <OWNER> with your organization name
+      run: >
+        ${{ matrix.mono }} `./vcpkg/vcpkg fetch nuget | tail -n 1`
+        sources add
+        -source "https://nuget.pkg.github.com/Dice-Developer-Team/index.json"
+        -storepasswordincleartext
+        -name "GitHub"
+        -username "Dice-Developer-Team"
+        -password "${{ secrets.GITHUB_TOKEN }}"
+
     - name: Configure CMake
       shell: bash
       working-directory: ${{github.workspace}}/build
+      # Note the current convention is to use the -S and -B options here to specify source 
+      # and build directories, but this is only available with CMake 3.13 and higher.  
+      # The CMake binaries on the Github Actions machines are (as of this writing) 3.12
       run: cmake $GITHUB_WORKSPACE -A ${{ matrix.type }} -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DDLL_SUFFIX=.${{matrix.dll_sfx}} -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}
-  
+
     - name: Build
       shell: bash
       working-directory: ${{github.workspace}}/build
+      # Execute the build.  You can specify a specific target with "--target <NAME>"
       run: cmake --build . --config $BUILD_TYPE
-  
+
     - name: Test
       shell: bash
       working-directory: ${{github.workspace}}/build
+      # Execute tests defined by the CMake configuration.  
+      # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
       run: ctest -C $BUILD_TYPE
-  
+      
     - name: Upload
       uses: actions/upload-artifact@v4
       with:
+        # Artifact name
         name: ${{ matrix.triplet }}
+        # A file, directory or wildcard pattern that describes what to upload
         path: "**/w4123.Dice.${{ matrix.dll_sfx }}.dll"
+
 
   build-linux:
     env:
@@ -88,60 +100,48 @@ jobs:
       fail-fast: false
       matrix:
         include:
-        - name: "AMD64 Build"
-          apt: g++-8 g++-8-multilib
+        - apt: g++-8
           cc: gcc-8
           cxx: g++-8
           triplet: x64-linux
           mono: 'mono'
           dll_sfx: linux.amd64
-          is_cross: false
-        - name: "ARM64 Build"
-          path: /usr/aarch64-linux-gnu
+        - path: /usr/i686-linux-gnu
+          apt: g++-8-i686-linux-gnu
+          cc: i686-linux-gnu-gcc-8
+          cxx: i686-linux-gnu-g++-8
+          triplet: x86-linux
+          mono: 'mono'
+          dll_sfx: linux.i386
+        - path: /usr/aarch64-linux-gnu
           apt: g++-aarch64-linux-gnu
           cc: aarch64-linux-gnu-gcc
           cxx: aarch64-linux-gnu-g++
           triplet: arm64-linux
           mono: 'mono'
           dll_sfx: linux.aarch64
-          is_cross: true
-  
+        - path: /usr/arm-linux-gnueabihf
+          apt: g++-arm-linux-gnueabihf
+          cc: arm-linux-gnueabihf-gcc
+          cxx: arm-linux-gnueabihf-g++
+          triplet: arm-linux
+          mono: 'mono'
+          dll_sfx: linux.arm
+        
     runs-on: ubuntu-22.04
-  
+    
     steps:
     - uses: actions/checkout@v3
       with:
         submodules: 'recursive'
-        
+
     - name: Create Build Environment
       # Some projects don't allow in-source building, so create a separate build directory
       # We'll use this as our working directory for all subsequent commands
       run: cmake -E make_directory ${{github.workspace}}/build
       
     - name: Install Cross Compiler
-      run: |
-        # 仅交叉编译时修改源和添加架构
-        if ${{ matrix.is_cross }}; then
-          # 替换ARM架构的软件源
-          sudo sed -i 's|http://$security\|archive$.ubuntu.com|https://ports.ubuntu.com|g' /etc/apt/sources.list
-          # 添加ARM架构支持
-          sudo dpkg --add-architecture arm64
-          sudo dpkg --add-architecture armhf
-        fi
-  
-        # 公共安装步骤
-        sudo apt-get update -y
-        sudo apt-get install -y software-properties-common
-        sudo add-apt-repository -y ppa:ubuntu-toolchain-r/ppa
-        sudo apt-get update -y
-        sudo apt-get install -y ${{ matrix.apt }}
-  
-        # 交叉编译特定安装
-        if ${{ matrix.is_cross }}; then
-          sudo apt-get install -y \
-            crossbuild-essential-arm64 \
-            libc6-dev-arm64-cross
-        fi
+      run: sudo apt-get update && sudo apt-get install ${{ matrix.apt }}
 
     - name: Cache
       uses: actions/cache@v3
